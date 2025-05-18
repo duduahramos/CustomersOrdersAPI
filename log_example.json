@@ -1,0 +1,8 @@
+{
+    "timestamp": "2025-05-17T20:15:01Z",
+    "level": "INFO",
+    "message": "Query executed for customer 42",
+    "sqlQuery": "SELECT * FROM orders WHERE customer_id = 42",
+    "executionTimeMs": 15,
+    "userId": "admin-api"
+}
