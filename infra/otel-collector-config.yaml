@@ -1,0 +1,64 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - http://localhost:3000
+            - http://127.0.0.1:3000
+            - http://localhost
+            - http://127.0.0.1
+
+processors:
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+
+exporters:
+  debug:
+    verbosity: detailed
+
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  # otlp:
+  #   # endpoint: tempo:4317
+  #   endpoint: tempo:9095
+  #   tls:
+  #     insecure: true
+
+  otlp:
+    endpoint: tempo:4319
+    tls:
+      insecure: true
+
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+    tls:
+      insecure: true
+
+service:
+  pipelines:      
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [loki]
+
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, otlp, otlp/jaeger]
+      # exporters: [otlp, otlp/jaeger]
+
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]

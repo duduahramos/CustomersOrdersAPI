@@ -28,3 +28,7 @@ select * from citus_shards where citus_table_type = 'schema';
 
 select count(customer_id) from customers;
 select count(order_id) from orders;
+
+
+delete from customers;
+delete from orders;

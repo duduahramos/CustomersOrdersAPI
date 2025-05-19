@@ -2,49 +2,58 @@
 # see citusdata/tools/packaging_automation/templates/docker/latest/docker-compose.tmpl.yml.
 services:
   # CITUS CONFIGURATION--------------------------------------------------------------------
-  master-citus:
-    env_file: ".env"
+  master:
     container_name: "master-citus"
     image: "citusdata/citus:13.0.3"
-    ports: ["${COORDINATOR_EXTERNAL_PORT}"]
+    ports: ["5432:5432"]
+    networks:
+      - telemetry_net
     labels: ["com.citusdata.role=Master"]
     environment: &AUTH
-      POSTGRES_USER: "${POSTGRES_USER}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
-      PGUSER: "${POSTGRES_USER}"
-      PGPASSWORD: "${POSTGRES_PASSWORD}"
-      POSTGRES_HOST_AUTH_METHOD: "${POSTGRES_HOST_AUTH_METHOD}"
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "postgres"
+      PGUSER: "postgres"
+      PGPASSWORD: "postgres"
+      POSTGRES_HOST_AUTH_METHOD: "trust"
+    volumes:
+      - master-data:/var/lib/postgresql/data
+      - healthcheck-volume:/healthcheck
 
-  worker-citus-1:
-    env_file: ".env"
+  worker1:
     container_name: "worker-citus-1"
     image: "citusdata/citus:13.0.3"
     labels: ["com.citusdata.role=Worker"]
-    depends_on: [manager-citus]
+    networks:
+      - telemetry_net
+    depends_on: [manager]
     environment: *AUTH
     command: "/wait-for-manager.sh"
     volumes:
-      - healthcheck-volume-citus:/healthcheck
+      - healthcheck-volume:/healthcheck
+      - worker1-data:/var/lib/postgresql/data
 
-  worker-citus-2:
-    env_file: ".env"
-    container_name: "worker-citus-2"
+  worker2:
+    # container_name: "worker-citus-2"
     image: "citusdata/citus:13.0.3"
     labels: ["com.citusdata.role=Worker"]
-    depends_on: [manager-citus]
+    networks:
+      - telemetry_net
+    depends_on: [manager]
     environment: *AUTH
     command: "/wait-for-manager.sh"
     volumes:
-      - healthcheck-volume-citus:/healthcheck
+      - healthcheck-volume:/healthcheck
+      - worker2-data:/var/lib/postgresql/data
 
-  manager-citus:
-    env_file: ".env"
-    container_name: "${COMPOSE_PROJECT_NAME}_manager"
+  manager:
+    # container_name: "manager-citus"
     image: "citusdata/membership-manager:0.3.0"
     volumes:
-      - "${DOCKER_SOCK}"
-      - healthcheck-volume-citus:/healthcheck
-    depends_on: [master-citus]
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - healthcheck-volume:/healthcheck
+    networks:
+      - telemetry_net
+    depends_on: [master]
     environment: *AUTH
   # CITUS CONFIGURATION--------------------------------------------------------------------
 
@@ -67,13 +76,127 @@ services:
       - rabbitmq-log:/var/log/rabbitmq
 
   # RABBIT MQ------------------------------------------------------------------------------
+  # OBSERVABILTY---------------------------------------------------------------------------
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:11.6.0
+    environment:
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+      - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
+    volumes:
+      - ./infra/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+    ports:
+      - "3333:3000"
+    networks:
+      - telemetry_net
+    depends_on:
+      - collector
+      - jaeger
+      - tempo
+      - loki
+      - prometheus
+
+  collector:
+    container_name: collector
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    command: [ "--config=/etc/collector.yaml" ]
+    ports:
+      - "8889:8889" # Prometheus metrics exporter (scrape endpoint)
+      - "4317:4317" # GRPC - Endpoint where application will be pushing telemetry data, e.g. logs, traces, and metrics.
+      - "4318:4318" # HTTP - Endpoint where application will be pushing telemetry data, e.g. logs, traces, and metrics.
+    volumes:
+      - ./infra/otel-collector-config.yaml:/etc/collector.yaml
+    depends_on:
+      - jaeger
+      - tempo
+      - loki
+    networks:
+      - telemetry_net
+
+  jaeger:
+    container_name: jaeger
+    image: jaegertracing/jaeger:2.4.0 # prod
+    # image: jaegertracing/all-in-one:latest # dev
+    ports:
+      - "16686:16686"  # UI
+    restart: unless-stopped
+    networks:
+      - telemetry_net
+
+  tempo:
+    container_name: tempo
+    image: grafana/tempo:latest
+    ports:
+      - "3200:3200"
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./infra/tempo.yaml:/etc/tempo.yaml
+    networks:
+      - telemetry_net
+
+  loki:
+    container_name: loki
+    image: grafana/loki:3.4.2
+    restart: unless-stopped
+    environment:
+      - TZ=America/Sao_Paulo
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./infra/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki_volume:/tmp
+    depends_on:
+      - promtail
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - telemetry_net
+
+  promtail:
+    container_name: promtail
+    image: grafana/promtail:3.4.2
+    environment:
+      - TZ=America/Sao_Paulo
+    volumes:
+      - ./infra/app-dev-logs.log:/var/log/app-dev-logs.log
+      - ./infra/promtail-config.yaml:/etc/promtail/promtail-config.yaml:ro
+    command: -config.file=/etc/promtail/promtail-config.yaml
+    networks:
+      - telemetry_net
+
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus:v3.3.0-rc.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus-config.yaml:/etc/prometheus/prometheus.yaml
+    depends_on:
+      - collector
+      - loki
+    networks:
+      - telemetry_net
+  # OBSERVABILTY---------------------------------------------------------------------------
+
+networks:
+  telemetry_net:
+    name: telemetry_net
+    driver: bridge
 
 volumes:
-  healthcheck-volume-citus:
+  healthcheck-volume:
+  master-data:
+  worker1-data:
+  worker2-data:
+  manager-data:
   rabbitmq-lib:
     driver: local
   rabbitmq-log:
     driver: local
+  loki_volume:
+    name: loki_volume
 
 configs:
   rabbitmq-plugins:

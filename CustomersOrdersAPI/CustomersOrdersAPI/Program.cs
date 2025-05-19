@@ -3,6 +3,10 @@ using CustomersOrdersAPI.Context;
 using CustomersOrdersAPI.Repositories;
 using CustomersOrdersAPI.Repositories.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using OpenTelemetry.Exporter;
+using OpenTelemetry.Logs;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +23,45 @@ builder.Services.AddDbContextPool<AppDbContext>(opt => opt.UseNpgsql(connectionS
 builder.Services.AddScoped<ICustomerRepository, CustomerRepository>();
 builder.Services.AddScoped<IOrderRepository, OrderRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+
+builder.Services.AddOpenTelemetry()
+    .WithTracing(options =>
+    {
+        options
+            .AddSource("CustomersOrdersAPI")
+            .ConfigureResource(resourceBuilder =>
+            {
+                resourceBuilder.AddService(serviceName: "CustomersOrdersAPI", serviceVersion: "v1.0.0");
+            })
+            .SetErrorStatusOnException()
+            .SetSampler(new AlwaysOnSampler()) // For dev. purposes only.
+            .AddHttpClientInstrumentation(instrumentationOptions => { instrumentationOptions.RecordException = true; })
+            .AddAspNetCoreInstrumentation(instrumentationOptions => { instrumentationOptions.RecordException = true; })
+            .AddSqlClientInstrumentation(instrumentationOptions =>
+            {
+                instrumentationOptions.RecordException = true;
+                instrumentationOptions.SetDbStatementForText = true;
+            })
+            .AddOtlpExporter(opt =>
+            {
+                opt.Protocol = OtlpExportProtocol.Grpc;
+                opt.Endpoint = new Uri(builder.Configuration["OTLP_ENDPOINT_URL"]);
+            })
+            .AddConsoleExporter();
+    })
+    .WithLogging(options =>
+    {
+        options
+            .ConfigureResource(resourceBuilder =>
+            {
+                resourceBuilder.AddService(serviceName: "CustomersOrdersAPI", serviceVersion: "v1.0.0");
+            })
+            .AddOtlpExporter(opt =>
+            {
+                opt.Protocol = OtlpExportProtocol.Grpc;
+                opt.Endpoint = new Uri(builder.Configuration["OTLP_ENDPOINT_URL"]);
+            });
+    });
 
 var app = builder.Build();
 

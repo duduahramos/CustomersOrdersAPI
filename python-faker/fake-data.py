@@ -12,7 +12,7 @@ psycopg2.extras.register_uuid()
 # Configurações de conexão
 conn = psycopg2.connect(
     host="localhost",
-    port=32770,
+    port=5432,
     dbname="customers_orders_db",
     user="postgres",
     password="postgres"
@@ -45,21 +45,20 @@ def insert_orders(customers, orders_per_customer=10000):
 
     for idx, customer_id in enumerate(customers):
         orders = []
-        for _ in range(orders_per_customer):
+        for idx2 in range(orders_per_customer):
             order_id = uuid.uuid4()
             product_name = fake.word()
             quantity = random.randint(1, 10)
             total_value = round(quantity * random.uniform(10.0, 500.0), 2)
             orders.append((order_id, customer_id, product_name, quantity, total_value))
 
-        cur.execute(
-            f"INSERT INTO orders (order_id, customer_id, product_name, quantity, total_value) VALUES ('{order_id}', '{customer_id}', '{product_name}', {quantity}, {total_value})"
-        )
+            cur.execute(
+                f"INSERT INTO orders (order_id, customer_id, product_name, quantity, total_value) VALUES ('{order_id}', '{customer_id}', '{product_name}', {quantity}, {total_value})"
+            )
 
-
-        if (idx + 1) % 1000 == 0:
-            conn.commit()
-            print(f"[INFO] {idx + 1}/{len(customers)} clientes processados.")
+            if (idx2 + 1) % 1000 == 0:
+                conn.commit()
+                print(f"[INFO] {idx + 1}/{len(customers)} clientes processados.")
 
     print("[INFO] Inserção de pedidos finalizada.")
 

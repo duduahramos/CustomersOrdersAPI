@@ -1,3 +1,5 @@
+using System.Text.Json;
+using CustomersOrdersAPI.DTOs;
 using CustomersOrdersAPI.Mappings;
 using CustomersOrdersAPI.Repositories.Interfaces;
 using Microsoft.AspNetCore.Mvc;
@@ -9,9 +11,11 @@ namespace CustomersOrdersAPI.Controllers;
 public class CustomersController : ControllerBase
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ILogger<CustomersController> _logger;
     
-    public CustomersController(IUnitOfWork unitOfWork)
+    public CustomersController(IUnitOfWork unitOfWork, ILogger<CustomersController> logger)
     {
+        _logger = logger;
         _unitOfWork = unitOfWork;
     }
     
@@ -27,6 +31,17 @@ public class CustomersController : ControllerBase
 
         var customersDto = customers.ToDTOs();
         
+        _logger.LogInformation(JsonSerializer.Serialize(new LogDTO<CustomerDTO>
+        {
+            Timestamp = DateTime.UtcNow,
+            Level = "INFO",
+            Message = "Customers retrieved successfully.",
+            ExecutionTimeMs = 15,
+            QuantityFound = customersDto.Count,
+            UserId = "admin-api",
+            Data = customersDto
+        }));
+        
         return Ok(customersDto);
     }
     
@@ -41,6 +56,17 @@ public class CustomersController : ControllerBase
         }
 
         var customerDto = customer.ToDTO();
+        
+        _logger.LogInformation(JsonSerializer.Serialize(new LogDTO<CustomerDTO>
+        {
+            Timestamp = DateTime.UtcNow,
+            Level = "INFO",
+            Message = $"Order '{id}' retrieved successfully.",
+            ExecutionTimeMs = 15,
+            QuantityFound = 1,
+            UserId = "admin-api",
+            Data = new List<CustomerDTO> { customerDto }
+        }));
         
         return Ok(customerDto);
     }
